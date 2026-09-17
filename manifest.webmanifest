@@ -1,0 +1,9 @@
+{
+  "name": "Cantina De Pasquale",
+  "short_name": "Cantina",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f1ec",
+  "theme_color": "#171513",
+  "description": "Gestione personale Cantina De Pasquale"
+}
