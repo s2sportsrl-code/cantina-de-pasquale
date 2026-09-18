@@ -1,20 +1,8 @@
-CANTINA DE PASQUALE — PWA V1
+CANTINA DE PASQUALE — PWA V3 DESIGN BUILD
 
-Contenuto:
-- Inventario completo: 51 bottiglie disponibili / 28 etichette disponibili (29 censite)
-- Ordinamento per annata
-- Ricerca e filtro Rossi / Bianchi e Bollicine
-- Stato giallo/verde/arancio
-- APERTA: scala una bottiglia e registra lo storico
-- +: aggiunge una bottiglia
-- Annulla apertura
-- Persistenza locale sul dispositivo (localStorage)
-- Backup JSON
-- Modulo Sommelier AI predisposto con criteri €50 / sconto 25%
-- PWA/offline tramite service worker
-- Spazio immagine bottiglia già previsto
+Questa build sostituisce la V1/V2 e usa Supabase come fonte dati.
+Include: restyling premium mobile-first, filtri semaforo cliccabili, card vino cliccabili, scheda dettaglio, aggiunta bottiglie, acquisizione foto, lotti acquisto, valutazioni 1–5 stelle, Collezione e nuova struttura Sommelier AI.
 
-Per installarla realmente su iPhone va pubblicata su un piccolo hosting HTTPS.
-Aprire un file HTML direttamente da iPhone non consente tutte le funzioni PWA/service worker.
+Nota: riconoscimento fotografico AI, ricerca automatica delle foto ufficiali, chat AI e scouting web richiedono un backend/servizio AI e NON sono simulati in questa build. L'interfaccia e il database sono predisposti per il collegamento.
 
-Nota: il totale è stato ricalcolato dalle singole righe e include le rimozioni del 24/08/2026.
+wines.json è volutamente vuoto: l'inventario reale è nel database cloud.
