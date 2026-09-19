@@ -1,4 +1,4 @@
-Cantina De Pasquale PWA V3.4
+Cantina De Pasquale PWA V3.5
 - Inventario cloud Supabase
 - Card e filtri cliccabili
 - Scheda vino
@@ -7,6 +7,7 @@ Cantina De Pasquale PWA V3.4
 - Sommelier UI
 - Cosa apro? con consiglio dalla cantina disponibile
 - Analizza / Acquista con foto, prezzo proposto e confronto cantina
+- Scouting vini AI con ricerca web, budget, confronto cantina, offerte e fonti
 - Backend AI protetto tramite Supabase Edge Function (OPENAI_API_KEY solo nei secrets)
 - Modalità offline: riapertura dell'ultimo inventario sincronizzato senza espellere l'utente
 - Immagini bottiglie da database con normalizzazione visiva: sfondo bianco neutralizzato, proporzioni e centratura uniformi
