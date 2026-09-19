@@ -38,8 +38,62 @@ function renderScoutingResult(data){
   result.innerHTML=`<div class="scout-summary"><b>Selezione aggiornata</b><p>${esc(data.summary||"Opportunità confrontate con la tua cantina.")}</p></div><div class="scout-results">${cards}</div>${sources}`;
   result.scrollIntoView({behavior:"smooth",block:"start"});
 }
-async function runScouting(){const button=$("#runScouting"),result=$("#scoutResults"),budget=Math.min(500,Math.max(10,+$("#scoutBudget").value||60)),interests=$("#scoutInterests").value.trim();button.disabled=true;button.textContent="Cerco e confronto le offerte…";result.innerHTML='<div class="analysis-loading">Sto cercando opportunità reali e le confronto con la tua cantina. Può richiedere qualche secondo…</div>';try{const response=await fetch(`${SUPABASE_URL}/functions/v1/sommelier-scout`,{method:"POST",headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`,"Content-Type":"application/json"},body:JSON.stringify({budget,interests,cellar:wines.filter(w=>w.quantity>0).map(w=>({name:w.name,producer:w.producer,vintage:w.vintage,category:w.category,quantity:w.quantity,priority:w.priority,purchase_price:w.purchase_price,market_value_min:w.market_value_min,market_value_max:w.market_value_max}))})});const data=await response.json();if(!response.ok)throw new Error(data.error||"Scouting non disponibile");renderScoutingResult(data)}catch(error){result.innerHTML=`<div class="analysis-error"><b>Ricerca non completata</b><p>${esc(error.message)}</p></div>`}finally{button.disabled=false;button.textContent="Cerca opportunità"}}
-function showScoutingWorkspace(){$("#aiWorkspace").innerHTML=`<div class="panel scout-panel"><h3>🔎 Scouting vini</h3><p class="muted">Cerco offerte attuali, le confronto con la tua cantina e seleziono ciò che vale davvero la pena approfondire.</p><div class="scout-fields"><label>Budget massimo per bottiglia <span>€</span><input id="scoutBudget" type="number" min="10" max="500" step="5" inputmode="decimal" value="60"></label><label>Cosa stai cercando?<textarea id="scoutInterests" rows="3" placeholder="Es. Etna Rosso, Barolo non commerciale, bollicine da lungo affinamento…">Vini non commerciali, territoriali, con personalità e buon potenziale evolutivo.</textarea></label></div><button class="primary" id="runScouting">Cerca opportunità</button><p class="scout-note">Prezzi e disponibilità possono cambiare: controlla sempre la pagina del venditore prima dell'acquisto.</p><div id="scoutResults" aria-live="polite"></div></div>`;$("#runScouting").onclick=runScouting;const field=$("#scoutInterests");requestAnimationFrame(()=>field.scrollIntoView({behavior:"smooth",block:"center"}))}
+function runScouting(){
+  const budget=Math.min(500,Math.max(10,+$("#scoutBudget").value||60));
+  const interests=$("#scoutInterests").value.trim()||
+    "Vini non commerciali, territoriali, con personalità e buon potenziale evolutivo.";
+
+  const available=wines.filter(w=>w.quantity>0);
+
+  const cellar=available.map(w=>{
+    const vintage=w.vintage?` ${w.vintage}`:"";
+    const producer=w.producer?` — ${w.producer}`:"";
+    return `• ${w.name}${vintage}${producer} (${w.quantity} bt)`;
+  }).join("\n");
+
+  const prompt=`Agisci come wine scout personale per la mia cantina.
+
+Cerca sul web offerte REALI e attualmente acquistabili in Italia.
+
+BUDGET MASSIMO:
+${budget} € a bottiglia.
+
+COSA CERCO:
+${interests}
+
+LA MIA CANTINA ATTUALE:
+${cellar}
+
+Analizza la composizione della mia cantina e cerca vini che aggiungano realmente qualcosa alla collezione, evitando doppioni inutili.
+
+Privilegia:
+- produttori territoriali e poco commerciali
+- vini con personalità
+- buon potenziale evolutivo
+- annate interessanti
+- rapporto qualità/prezzo
+- territori, vitigni o stili poco rappresentati nella mia cantina
+
+Per ogni proposta verifica online:
+- vino e produttore
+- annata
+- prezzo attuale
+- venditore
+- disponibilità
+- link diretto all'offerta
+- finestra di consumo
+- perché avrebbe senso nella mia cantina
+
+Proponimi 5 opportunità massimo.
+
+Non inventare prezzi, disponibilità o link. Se un dato non è verificabile, dichiaralo.
+
+Ordina le proposte per interesse rispetto ALLA MIA CANTINA, non semplicemente per fama del vino.`;
+
+  const url="https://chatgpt.com/?q="+encodeURIComponent(prompt);
+  window.open(url,"_blank","noopener,noreferrer");
+}
+function showScoutingWorkspace(){$("#aiWorkspace").innerHTML=`<div class="panel scout-panel"><h3>🔎 Scouting vini</h3><p class="muted">Preparo una ricerca personalizzata usando la tua cantina e la apro direttamente in ChatGPT.</p><div class="scout-fields"><label>Budget massimo per bottiglia <span>€</span><input id="scoutBudget" type="number" min="10" max="500" step="5" inputmode="decimal" value="60"></label><label>Cosa stai cercando?<textarea id="scoutInterests" rows="3" placeholder="Es. Etna Rosso, Barolo non commerciale, bollicine da lungo affinamento…">Vini non commerciali, territoriali, con personalità e buon potenziale evolutivo.</textarea></label></div><button class="primary" id="runScouting">✨ Cerca con ChatGPT</button><p class="scout-note">Prezzi e disponibilità possono cambiare: controlla sempre la pagina del venditore prima dell'acquisto.</p><div id="scoutResults" aria-live="polite"></div></div>`;$("#runScouting").onclick=runScouting;const field=$("#scoutInterests");requestAnimationFrame(()=>field.scrollIntoView({behavior:"smooth",block:"center"}))}
 function showView(view){$$('.bottom-nav button').forEach(x=>x.classList.toggle('active',x.dataset.view===view));$$('.view').forEach(v=>v.classList.toggle('hidden',v.id!==view));$('#addGlobal').classList.toggle('hidden',view!=="cantina")}
 function showPriorityInCellar(priority){activePriority=priority;$$('[data-priority]').forEach(x=>x.classList.toggle('active',x.dataset.priority===activePriority));showView("cantina");render();window.scrollTo({top:0,behavior:"smooth"})}
 function aiWorkspace(mode){if(mode==="open"){$("#aiWorkspace").innerHTML=`<div class="panel ai-open-panel"><h3>🍷 Cosa apro?</h3><p class="muted">Raccontami cena, piatto o occasione: userò disponibilità, priorità e abbinamento.</p><textarea id="aiOccasion" placeholder="Es. Stasera grigliata per 6 persone…"></textarea><button class="primary" id="askSommelier">Chiedi al Sommelier</button><div id="aiRecommendation" aria-live="polite"></div></div>`;const field=$("#aiOccasion");$("#askSommelier").onclick=renderRecommendation;field.onkeydown=e=>{if((e.ctrlKey||e.metaKey)&&e.key==="Enter")renderRecommendation};field.focus({preventScroll:true});requestAnimationFrame(()=>field.scrollIntoView({behavior:"smooth",block:"center"}))}else if(mode==="analyze"){pendingAnalysisPhoto=null;$("#aiWorkspace").innerHTML=`<div class="panel analyze-panel"><h3>📷 Analizza / Acquista</h3><p class="muted">Fotografa bene l'etichetta. Il Sommelier riconosce il vino, valuta il prezzo e controlla se è già presente in cantina.</p><div class="camera-box" id="analysisCamera"><div class="cam">📷</div><b>Fotografa o scegli la bottiglia</b><p>Etichetta frontale, luce uniforme, niente riflessi.</p></div><div id="analysisPreview"></div><div class="analysis-fields"><label>Prezzo proposto € <input id="analysisPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Facoltativo"></label><label>Negozio o sito <input id="analysisStore" placeholder="Facoltativo"></label></div><button class="primary" id="runAnalysis">Analizza e confronta</button><div id="analysisResult" aria-live="polite"></div></div>`;$("#analysisCamera").innerHTML=`<div class="cam">📷</div><b>Foto della bottiglia</b><p>Scatta una foto oppure sceglila dalla libreria.</p><button type="button" class="secondary" id="analysisChoosePhoto">📷 Scegli foto</button>`;
