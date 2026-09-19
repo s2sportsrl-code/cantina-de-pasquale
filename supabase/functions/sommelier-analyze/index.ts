@@ -159,44 +159,60 @@ Se qualche informazione non è verificabile,
 dichiaralo chiaramente invece di inventarla.
 `;
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [
-                { text: prompt },
-                {
-                  inlineData: {
-                    mimeType,
-                    data: imageData,
-                  },
-                },
-              ],
-            },
-          ],
+const models = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
+];
 
-          tools: [
-            {
-              google_search: {},
-            },
-          ],
+let response: Response | null = null;
+let payload: any = null;
 
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: "application/json",
+const requestBody = {
+  contents: [
+    {
+      role: "user",
+      parts: [
+        { text: prompt },
+        {
+          inlineData: {
+            mimeType,
+            data: imageData,
           },
-        }),
-      },
-    );
+        },
+      ],
+    },
+  ],
+  generationConfig: {
+    temperature: 0.2,
+    responseMimeType: "application/json",
+  },
+};
 
-    const payload = await response.json();
+for (const model of models) {
+  response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    },
+  );
+
+  payload = await response.json();
+
+  if (response.ok) {
+    console.log(`Sommelier: risposta ottenuta con ${model}`);
+    break;
+  }
+
+  console.warn(
+    `Sommelier: ${model} non disponibile`,
+    payload?.error?.message || response.status,
+  );
+}
 
     if (!response.ok) {
       console.error("Gemini error", payload);
