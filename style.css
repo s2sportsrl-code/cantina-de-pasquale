@@ -8,21 +8,22 @@
 .analyze-panel>.primary{width:100%;margin-top:10px}.camera-box p{margin:7px 0 0;color:var(--muted);font-size:11px}.analysis-fields{display:grid;grid-template-columns:1fr 1fr;gap:9px}.analysis-fields label{font-size:11px;color:var(--muted)}.analysis-fields input{width:100%;margin-top:5px;border:1px solid var(--line);border-radius:12px;padding:11px;background:#fffdf9;color:var(--ink)}#analysisPreview img{display:block;width:100%;max-height:280px;object-fit:contain;background:#f2e9de;border-radius:16px;margin-bottom:12px}.analysis-loading,.analysis-error{margin-top:14px;padding:14px;border-radius:13px;background:#f7efe4;color:var(--muted);font-size:13px}.analysis-error{background:#fff0ed;color:#8a302c}.analysis-result{position:relative;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}.analysis-result h3{font:700 23px Georgia,serif;margin:8px 0 2px}.analysis-score{float:right;width:74px;height:74px;border-radius:50%;display:grid;place-content:center;text-align:center;background:#f4e4d1;color:var(--wine);margin:0 0 8px 12px}.analysis-score b{font-size:24px}.analysis-score small{font-size:8px}.cellar-match{clear:both;padding:10px;border-radius:11px;background:#e9f4ec;color:#27633d;font-size:12px}.analysis-columns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.analysis-columns>div{background:#fffdf9;border:1px solid var(--line);border-radius:12px;padding:10px}.analysis-columns small{color:var(--muted);font-size:9px;text-transform:uppercase}.analysis-columns p{font-size:12px;margin:6px 0}.buy-advice{clear:both;background:#f7efe4;border-radius:12px;padding:11px}.analysis-result>.primary{width:100%}@media(max-width:420px){.analysis-fields,.analysis-columns{grid-template-columns:1fr}}
 .ai-open-panel textarea{font-family:inherit;font-size:16px;line-height:1.45}.today-stats button{min-width:0;border:0;background:transparent;color:inherit;padding:4px 2px;cursor:pointer}.today-stats button+button{border-left:1px solid var(--line)}.today-stats button:active{background:rgba(127,16,40,.06)}.recommendations{display:grid;gap:4px}
 .scout-panel>.primary{width:100%;margin-top:12px}.scout-fields{display:grid;gap:11px}.scout-fields label{display:block;color:var(--muted);font-size:11px}.scout-fields input,.scout-fields textarea{display:block;width:100%;margin-top:5px;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffdf9;color:var(--ink);font-family:inherit;font-size:16px;line-height:1.4}.scout-note{font-size:10px;color:var(--muted);line-height:1.4}.scout-summary{margin-top:16px;padding:13px;border-radius:13px;background:#f4eadc}.scout-summary p{margin:6px 0 0;font-size:12px;line-height:1.4}.scout-results{display:grid;gap:12px}.scout-result{position:relative;background:#fffdf9;border:1px solid var(--line);border-radius:16px;padding:15px;box-shadow:var(--shadow)}.scout-result h3{font:700 21px Georgia,serif;margin:8px 70px 4px 0}.scout-result p{font-size:12px;line-height:1.45}.scout-score{position:absolute;right:13px;top:13px;width:56px;height:56px;border-radius:50%;display:grid;place-content:center;text-align:center;background:#f4e4d1;color:var(--wine)}.scout-score b{font-size:19px;line-height:18px}.scout-score small{font-size:8px}.scout-gap{padding:10px;border-radius:11px;background:#e9f4ec;color:#27633d;font-size:11px;line-height:1.4}.scout-caution{color:#8a5a23}.scout-link{display:inline-block;text-decoration:none;margin-top:4px}.scout-sources{margin-top:13px;font-size:11px;color:var(--muted)}.scout-sources a{display:block;color:var(--wine);padding:7px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-/* Uniforma le immagini nei consigli del Sommelier */
+/* Sommelier - uniforma dimensione bottiglie consigliate */
 .recommend-photo{
   width:90px;
   height:140px;
   min-width:90px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  overflow:hidden;
+  min-height:140px;
+  padding:8px 10px;
 }
 
 .recommend-photo img{
-  width:100%;
-  height:100%;
-  object-fit:contain;
-  object-position:center;
+  width:70px !important;
+  height:124px !important;
+  max-width:70px !important;
+  max-height:124px !important;
+  object-fit:contain !important;
+  object-position:center !important;
+  transform:none !important;
   display:block;
 }
