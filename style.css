@@ -27,3 +27,7 @@
   transform:none !important;
   display:block;
 }
+/* Analizza / Acquista - evita zoom automatico iPhone */
+.analysis-fields input{
+  font-size:16px !important;
+}
