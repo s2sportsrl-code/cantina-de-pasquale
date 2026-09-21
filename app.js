@@ -34,7 +34,11 @@ async function processWineImage(wineId,file){if(!session?.access_token)throw new
 let imageNormalizationRunning=false,lastNormalizationReport=null;
 function existingWineImageSource(wine){return[["official_image_url",wine?.official_image_url],["bottle_image_url",wine?.bottle_image_url],["personal_image_url",wine?.personal_image_url],["label_image_url",wine?.label_image_url]].find(([,url])=>validText(url))||null}
 function isBonsignoreWine(wine){const value=`${wine?.name||""} ${wine?.vintage||""}`.toLowerCase().replace(/[’']/g,"'");return value.includes("bonsignore")&&value.includes("nero")&&value.includes("magnum")&&value.includes("2021")}
-function isCurrentNormalizedImage(url){return validText(url)&&url.includes("/storage/v1/object/public/wine-images/wines/")&&/[?&]v=\d+-\d+/.test(url)}
+function isCurrentNormalizedImage(url){
+  return validText(url) &&
+    url.includes("/storage/v1/object/public/wine-images/wines/") &&
+    /[?&]normalized=1(?:&|$)/.test(url);
+}
 async function normalizeExistingWineImage(wine) {
   const source = existingWineImageSource(wine);
 
@@ -57,10 +61,11 @@ async function normalizeExistingWineImage(wine) {
   }
 
   try {
+    /* 1. Supabase scarica l'immagine esterna per evitare CORS */
     const form = new FormData();
-
     form.append("wine_id", String(wine.id));
     form.append("source_url", source[1]);
+    form.append("mode", "fetch");
 
     const response = await fetch(
       `${SUPABASE_URL}/functions/v1/wine-image-process`,
@@ -74,20 +79,42 @@ async function normalizeExistingWineImage(wine) {
       }
     );
 
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok || !data?.ok || !data?.url) {
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
       throw new Error(
         data?.error || `HTTP_${response.status}`
       );
     }
 
+    /* 2. L'immagine torna all'app */
+    const blob = await response.blob();
+
+    if (!/^image\//i.test(blob.type || "")) {
+      throw new Error("SOURCE_NOT_IMAGE");
+    }
+
+    /* 3. VERO processo di uniformazione:
+          scontorno + ridimensionamento */
+    const normalized = await prepareWineImage(blob);
+
+    /* 4. Carica la versione uniformata nello Storage */
+    const uploaded = await processWineImage(
+      wine.id,
+      normalized
+    );
+
+    const url = new URL(uploaded.url);
+
+    /* Segna esplicitamente che questa immagine
+       è stata realmente normalizzata */
+    url.searchParams.set("normalized", "1");
+
     return {
       ...base,
       status: "success",
-      reason: "Immagine importata nello Storage",
-      stage: "server_download",
-      url: versionedImageUrl(data.url)
+      reason: "Immagine normalizzata",
+      stage: "upload",
+      url: url.href
     };
 
   } catch (error) {
@@ -104,16 +131,14 @@ async function normalizeExistingWineImage(wine) {
 
     if (message.includes("SOURCE_DOWNLOAD_FAILED")) {
       reason = "Il sito sorgente rifiuta il download";
-    }
-
-    if (
+    } else if (
       message.includes("SOURCE_NOT_IMAGE") ||
       message.includes("FORMAT_NEEDS_CLIENT_CONVERSION")
     ) {
       reason = "Formato immagine non supportato";
-    }
-
-    if (message.includes("Unauthorized")) {
+    } else if (message.includes("background removal")) {
+      reason = "Scontorno non riuscito";
+    } else if (message.includes("Unauthorized")) {
       reason = "Sessione non autorizzata";
     }
 
