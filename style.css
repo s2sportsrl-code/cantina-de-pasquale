@@ -33,4 +33,4 @@
   font-size:16px !important;
 }
 .detail-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-actions button{width:100%;height:46px;min-width:0;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:13px;padding:0 8px;font-size:12px;line-height:1;font-weight:700}
-.photo-choice{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:14px}.photo-choice button{min-height:44px;padding:10px 8px;font-size:12px;white-space:nowrap}
+.add-photo-button{width:100%;min-height:46px;padding:12px 10px;font-size:13px;white-space:nowrap}
