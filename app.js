@@ -35,7 +35,96 @@ let imageNormalizationRunning=false,lastNormalizationReport=null;
 function existingWineImageSource(wine){return[["official_image_url",wine?.official_image_url],["bottle_image_url",wine?.bottle_image_url],["personal_image_url",wine?.personal_image_url],["label_image_url",wine?.label_image_url]].find(([,url])=>validText(url))||null}
 function isBonsignoreWine(wine){const value=`${wine?.name||""} ${wine?.vintage||""}`.toLowerCase().replace(/[’']/g,"'");return value.includes("bonsignore")&&value.includes("nero")&&value.includes("magnum")&&value.includes("2021")}
 function isCurrentNormalizedImage(url){return validText(url)&&url.includes("/storage/v1/object/public/wine-images/wines/")&&/[?&]v=\d+-\d+/.test(url)}
-async function normalizeExistingWineImage(wine){const source=existingWineImageSource(wine),base={id:wine?.id,wineId:wine?.id,name:wine?.name,wineName:wine?.name,vintage:wine?.vintage,sourceUrl:source?.[1]||null};if(!source)return{...base,status:"skipped",reason:"Nessuna immagine sorgente",stage:"no_source"};let response,blob;try{response=await fetch(source[1]);if(!response.ok)return{...base,status:"failed",reason:"Immagine esterna non scaricabile",stage:"cors"};blob=await response.blob()}catch(error){console.error("normalize image download",wine.id,error);return{...base,status:"failed",reason:"Immagine esterna non scaricabile",stage:error instanceof TypeError?"cors":"download"}}if(!/^image\//i.test(blob.type||""))return{...base,status:"failed",reason:"Formato immagine non supportato",stage:"invalid_mime"};let normalized;try{normalized=await prepareWineImage(blob)}catch(error){console.error("normalize image processing",wine.id,error);const stage=/background removal/i.test(error?.message||"")?"background_removal":"decode";return{...base,status:"failed",reason:stage==="background_removal"?"Scontorno non riuscito":"Immagine non decodificabile",stage}}try{const uploaded=await processWineImage(wine.id,normalized);return{...base,status:"success",reason:"Immagine normalizzata",stage:"upload",url:uploaded?.url||null}}catch(error){console.error("normalize image upload",wine.id,error);return{...base,status:"failed",reason:"Upload immagine non riuscito",stage:"upload"}}}
+async function normalizeExistingWineImage(wine) {
+  const source = existingWineImageSource(wine);
+
+  const base = {
+    id: wine?.id,
+    wineId: wine?.id,
+    name: wine?.name,
+    wineName: wine?.name,
+    vintage: wine?.vintage,
+    sourceUrl: source?.[1] || null
+  };
+
+  if (!source) {
+    return {
+      ...base,
+      status: "skipped",
+      reason: "Nessuna immagine sorgente",
+      stage: "no_source"
+    };
+  }
+
+  try {
+    const form = new FormData();
+
+    form.append("wine_id", String(wine.id));
+    form.append("source_url", source[1]);
+
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/wine-image-process`,
+      {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: form
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.ok || !data?.url) {
+      throw new Error(
+        data?.error || `HTTP_${response.status}`
+      );
+    }
+
+    return {
+      ...base,
+      status: "success",
+      reason: "Immagine importata nello Storage",
+      stage: "server_download",
+      url: versionedImageUrl(data.url)
+    };
+
+  } catch (error) {
+
+    console.error(
+      "normalize remote image",
+      wine.id,
+      error
+    );
+
+    const message = String(error?.message || "");
+
+    let reason = "Immagine esterna non elaborabile";
+
+    if (message.includes("SOURCE_DOWNLOAD_FAILED")) {
+      reason = "Il sito sorgente rifiuta il download";
+    }
+
+    if (
+      message.includes("SOURCE_NOT_IMAGE") ||
+      message.includes("FORMAT_NEEDS_CLIENT_CONVERSION")
+    ) {
+      reason = "Formato immagine non supportato";
+    }
+
+    if (message.includes("Unauthorized")) {
+      reason = "Sessione non autorizzata";
+    }
+
+    return {
+      ...base,
+      status: "failed",
+      reason,
+      stage: "server_download"
+    };
+  }
+}
 async function normalizeAllExistingWineImages(retryOnly=false,onProgress){if(typeof retryOnly==="function"){onProgress=retryOnly;retryOnly=false}if(imageNormalizationRunning)throw new Error("Image normalization already running");imageNormalizationRunning=true;const failedIds=new Set((lastNormalizationReport?.results||[]).filter(result=>result.status==="failed").map(result=>String(result.id??result.wineId))),candidates=(retryOnly?wines.filter(wine=>failedIds.has(String(wine.id))):wines.slice()),report={total:candidates.length,processed:0,success:0,skipped:0,failed:0,results:[]};try{for(const [index,wine] of candidates.entries()){const position=`[${index+1}/${candidates.length}]`,base={id:wine.id,name:wine.name,vintage:wine.vintage};onProgress?.(index+1,candidates.length,wine,"processing");let result;if(isBonsignoreWine(wine))result={...base,status:"skipped",reason:"Bonsignore già validato",stage:"already_normalized"};else{const source=existingWineImageSource(wine);if(!source)result={...base,status:"skipped",reason:"Nessuna immagine sorgente",stage:"no_source"};else if(isCurrentNormalizedImage(source[1]))result={...base,status:"skipped",reason:"Immagine Storage già normalizzata",stage:"already_normalized"};else{report.processed++;console.log(`${position} ${wine.name||"Vino"} — processing`);result=await normalizeExistingWineImage(wine);if(result.status==="success"){try{await request(`/rest/v1/wines?id=eq.${wine.id}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({official_image_url:result.url})});wine.official_image_url=result.url;console.log(`${position} ${wine.name||"Vino"} — success`)}catch(error){console.error("normalize image database update",wine.id,error);result={...result,status:"failed",reason:"Immagine elaborata ma URL non aggiornabile",stage:"database_update"}}}}}if(result.status==="success")report.success++;else if(result.status==="failed")report.failed++;else report.skipped++;report.results.push(result);onProgress?.(index+1,candidates.length,wine,result.status);if(result.status!=="success")console.log(`${position} ${wine.name||"Vino"} — ${result.status}: ${result.reason}`)}try{await loadCloud()}catch(error){console.error("normalize image refresh",error)}lastNormalizationReport=report;return report}finally{imageNormalizationRunning=false}}
 window.normalizeAllExistingWineImages=normalizeAllExistingWineImages;
 async function removeBottle(w,requestedQty,reason){const qty=Math.min(Math.max(1,requestedQty),Math.max(0,Number(w.quantity)||0));if(!qty)return;const labels={gifted:"Bottiglia regalata e rimossa dalla cantina.",damaged:"Bottiglia danneggiata rimossa dalla cantina.",removed:"Bottiglia rimossa dalla cantina."};try{await patchQty(w,w.quantity-qty);let event;try{event=(await addEvent(w,reason,-qty))?.[0]}catch(error){await patchQty(w,w.quantity);throw error}w.quantity-=qty;if(event)history.unshift(event);closeModal();render();renderHistory();toast(labels[reason]||labels.removed)}catch(error){console.error("remove bottle",error);toast("Non sono riuscito a rimuovere la bottiglia.")}}
