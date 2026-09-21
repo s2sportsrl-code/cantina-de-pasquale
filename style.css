@@ -41,3 +41,13 @@
 .wine-card .photo{background:#FAF8F3;padding:0;overflow:hidden}.wine-card .photo img{display:block;width:auto;height:94%;max-width:90%;margin:auto;object-fit:contain;object-position:center}
 .maintenance{margin:22px 0 12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(255,250,242,.5)}.maintenance h3{margin:0 0 4px;font-size:14px}.maintenance p{margin:4px 0 8px;font-size:11px}.maintenance button{padding:9px 12px;font-size:12px}.maintenance button:disabled{opacity:.55;pointer-events:none}
 .maintenance details{margin-top:10px;font-size:11px}.maintenance summary{cursor:pointer;color:var(--wine);font-weight:700}.normalization-failure{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}.normalization-failure span{color:var(--muted)}
+/* iPhone safe area - fix v4.17 */
+@supports (padding-top: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .app-header {
+    padding-top: 18px;
+  }
+}
