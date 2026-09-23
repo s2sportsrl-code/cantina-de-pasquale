@@ -68,16 +68,5 @@
 }
 .wine-card .photo{aspect-ratio:2/3;min-height:0}.wine-card .photo img{width:100%;height:100%;max-width:none;object-fit:contain;object-position:center}
 
-/* === FIX CENTRAGGIO IMMAGINI CANTINA === */
-.wine-card .wine-image,
-.wine-card .wine-img,
-.wine-card .image-wrap,
-.wine-card .wine-photo,
-.wine-card .photo{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important}
-.wine-card .wine-image img,
-.wine-card .wine-img img,
-.wine-card .image-wrap img,
-.wine-card .wine-photo img,
-.wine-card .photo img,
-.wine-card>img{display:block!important;margin-left:auto!important;margin-right:auto!important;object-position:center center!important}
-.wine-card img{object-fit:contain!important;object-position:center center!important}
+.wine-card .photo{width:100%;box-sizing:border-box;margin-left:0;margin-right:0;display:flex;align-items:center;justify-content:center;background:transparent}
+.wine-card .photo img{display:block;object-fit:contain;object-position:center center;margin:0 auto;transform:none;left:auto;right:auto}
