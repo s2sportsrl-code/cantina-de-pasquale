@@ -256,5 +256,62 @@ function showNormalizationConfirm(retryOnly=false){if(normalizationUiRunning)ret
 async function runNormalizationFromUi(retryOnly=false){if(normalizationUiRunning)return;normalizationUiRunning=true;const button=$("#normalizeImagesButton"),retry=$("#retryNormalizationButton"),status=$("#normalizeImagesStatus");if(button)button.disabled=true;if(retry)retry.disabled=true;if(status)status.textContent="Uniformazione immagini in corso…";closeModal();await requestNormalizationWakeLock();try{const report=await normalizeAllExistingWineImages(retryOnly,(current,total)=>{if(status)status.textContent=`Uniformazione immagini in corso… ${current} di ${total}`});if(status)status.textContent=`Uniformazione completata. Aggiornate: ${report.success}. Già uniformi / saltate: ${report.skipped}. Non elaborate: ${report.failed}.${report.failed?" Alcune immagini non sono state modificate e sono rimaste quelle precedenti.":""}`;renderNormalizationDetails(report);render();renderHistory()}catch(error){console.error("normalize existing wine images",error);if(status)status.textContent="Uniformazione non completata. Le immagini precedenti sono rimaste invariate."}finally{if(button)button.disabled=false;if(retry)retry.disabled=false;await releaseNormalizationWakeLock();normalizationUiRunning=false}}
 async function handleWineImageSelection(e){const file=e.target.files?.[0];if(!file)return;try{toast("Scontorno e ottimizzo la bottiglia…");const normalized=await prepareWineImage(file);pendingBottleImage=normalized;const previewUrl=URL.createObjectURL(normalized),preview=$("#photoPreview"),analysis=$("#analysisPreview");if(preview)preview.innerHTML=`<img src="${previewUrl}" style="width:100%;max-height:220px;object-fit:contain;border-radius:16px;margin-bottom:10px">`;if(analysis){analysis.innerHTML=`<img src="${previewUrl}" alt="Bottiglia da analizzare">`;try{pendingAnalysisPhoto=await fileToAnalysisImage(file)}catch{pendingAnalysisPhoto=await fileToAnalysisImage(normalized)}toast("Foto ottimizzata ✓")}else toast("Foto ottimizzata ✓")}catch(error){pendingBottleImage=null;pendingAnalysisPhoto=null;console.error("wine image prepare",error);toast("Non sono riuscito a preparare questa foto.")}e.target.value=""}
 async function start(){session=cachedSession();if(session){showApp();try{await loadCloud()}catch{let restored=false;if(navigator.onLine){try{if(await refreshSession()){await loadCloud();restored=true}}catch{}}if(!restored&&!loadCache()){if(navigator.onLine){saveSession(null);showLogin()}else{setSync("Offline",true);toast("Primo accesso non disponibile senza connessione.")}}}}else showLogin();$("#loginForm").onsubmit=async e=>{e.preventDefault();$("#loginMsg").textContent="Accesso…";try{await login($("#email").value.trim(),$("#password").value);showApp();await loadCloud();$("#loginMsg").textContent=""}catch(err){$("#loginMsg").textContent=err.message}};$("#search").oninput=render;$$('[data-priority]').forEach(b=>b.onclick=()=>{activePriority=activePriority===b.dataset.priority?null:b.dataset.priority;$$('[data-priority]').forEach(x=>x.classList.toggle('active',x.dataset.priority===activePriority));render()});$$('[data-priority-link]').forEach(b=>b.onclick=()=>showPriorityInCellar(b.dataset.priorityLink));$$('[data-type]').forEach(b=>b.onclick=()=>{activeType=b.dataset.type;$$('[data-type]').forEach(x=>x.classList.toggle('active',x===b));render()});$$('.bottom-nav button').forEach(b=>b.onclick=()=>showView(b.dataset.view));$$('[data-ai]').forEach(b=>b.onclick=()=>aiWorkspace(b.dataset.ai));$("#chatBar").onclick=()=>aiWorkspace("open");$("#addGlobal").onclick=()=>showAdd();$("#closeModal").onclick=closeModal;$("#modal").onclick=e=>{if(e.target.id==="modal")closeModal()};$("#exportBtn").onclick=exportBackup;$("#cameraInput").onchange=handleWineImageSelection;$("#galleryInput").onchange=handleWineImageSelection;window.addEventListener("online",()=>session&&loadCloud().catch(()=>{loadCache();setSync("Offline",true)}));window.addEventListener("offline",()=>{loadCache();setSync("Offline",true)});if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js")}
+function wineMasterImage(wine){return wine?.official_image_url||wine?.bottle_image_url||wine?.personal_image_url||wine?.label_image_url||null}
+function wineThumbnailUrl(wine){
+  const master=wine?.official_image_url;
+  if(!validText(master))return null;
+  try{
+    const url=new URL(master),storageOrigin=new URL(SUPABASE_URL).origin;
+    if(url.origin!==storageOrigin||!/^\/storage\/v1\/object\/public\/wine-images\/wines\/[^/]+\/official\.webp$/.test(url.pathname))return null;
+    return `${url.origin}${url.pathname.slice(0,-"official.webp".length)}thumb.webp`;
+  }catch{return null}
+}
+async function createWineThumbnail(masterBlob){
+  const source=await createImageBitmap(masterBlob),canvas=document.createElement("canvas");
+  canvas.width=300;canvas.height=450;canvas.getContext("2d").drawImage(source,0,0,300,450);source.close?.();
+  return canvasBlob(canvas,"image/webp",.8);
+}
+async function uploadWineAsset(wineId,file,filename){
+  if(!session?.access_token)throw new Error("Authenticated session required");
+  const form=new FormData();form.append("wine_id",String(wineId));form.append("file",file,filename);
+  const response=await fetch(`${SUPABASE_URL}/functions/v1/wine-image-process`,{method:"POST",headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${session.access_token}`},body:form});
+  const data=await response.json().catch(()=>null);
+  if(!response.ok||!data?.ok||!validText(data.url))throw new Error(data?.error||"Wine image upload failed");
+  return data.url;
+}
+processWineImage=async function(wineId,file){
+  const masterUrl=versionedImageUrl(await uploadWineAsset(wineId,file,"official.webp"));
+  try{
+    const thumbnail=await createWineThumbnail(file);
+    await uploadWineAsset(wineId,thumbnail,"thumb.webp");
+  }catch(error){console.error("wine thumbnail upload",wineId,error)}
+  return {ok:true,url:masterUrl};
+};
+async function generateMissingWineThumbnails(){
+  const report={success:0,skipped:0,failed:0,results:[]};
+  for(const wine of wines){
+    const result={id:wine.id,name:wine.name,status:"failed"};
+    try{
+      const masterUrl=wine?.official_image_url,thumbnailUrl=wineThumbnailUrl(wine);
+      if(!validText(masterUrl)||!thumbnailUrl){result.status="skipped";result.reason="Master o percorso standard non disponibile";report.skipped++;report.results.push(result);continue}
+      const existing=await fetch(thumbnailUrl,{method:"HEAD"});
+      if(existing.ok){result.status="skipped";result.reason="Thumbnail già presente";report.skipped++;report.results.push(result);continue}
+      const response=await fetch(masterUrl);if(!response.ok)throw new Error(`Master HTTP_${response.status}`);
+      const thumbnail=await createWineThumbnail(await response.blob());await uploadWineAsset(wine.id,thumbnail,"thumb.webp");
+      result.status="success";report.success++;
+    }catch(error){result.reason=String(error?.message||error);report.failed++;console.error("generate wine thumbnail",wine.id,error)}
+    report.results.push(result);
+  }
+  return report;
+}
+window.createWineThumbnail=createWineThumbnail;window.wineThumbnailUrl=wineThumbnailUrl;window.generateMissingWineThumbnails=generateMissingWineThumbnails;
+const legacyRenderRecommendation=renderRecommendation;renderRecommendation=()=>{legacyRenderRecommendation();$$(".recommend-photo img").forEach(image=>{const wine=wines.find(item=>item.name===image.alt),thumb=wine&&wineThumbnailUrl(wine);if(!thumb||image.src===thumb)return;image.dataset.master=image.src;image.src=thumb;image.addEventListener("error",()=>{if(image.dataset.fallback!=="1"){image.dataset.fallback="1";image.src=image.dataset.master}else image.remove()}, {once:false})})};
+function renderOptimized(){
+  const q=$("#search").value.toLowerCase().trim(),arr=wines.filter(w=>w.quantity>0&&(activeType==="Tutti"||(activeType==="Bianco e Bollicine"?["Bianco e Bollicine","Bianchi e Bollicine"].includes(w.category):w.category===activeType))&&(!activePriority||w.priority===activePriority)&&(!q||(w.name+" "+(w.producer||"")+" "+(w.vintage||"")).toLowerCase().includes(q))).sort((a,b)=>{if(activeSort==="producer-asc"){const producer=(a.producer||"").localeCompare(b.producer||"","it");return producer||a.name.localeCompare(b.name,"it")||(a.vintage==null?Infinity:Number(a.vintage))-(b.vintage==null?Infinity:Number(b.vintage))}if(activeSort==="value-desc")return Number(b.market_value_max??b.market_value_min??0)-Number(a.market_value_max??a.market_value_min??0)||a.name.localeCompare(b.name);const av=a.vintage==null?Infinity:Number(a.vintage),bv=b.vintage==null?Infinity:Number(b.vintage);return(activeSort==="vintage-desc"?bv-av:av-bv)||a.name.localeCompare(b.name,"it")});
+  $("#list").innerHTML=arr.map((w,index)=>{const master=wineMasterImage(w),thumb=wineThumbnailUrl(w),source=thumb||master,priority=index<4?'eager':'lazy',fetchPriority=index<4?'high':'low';return`<article class="wine-card" data-wine="${w.id}"><i class="dot ${w.priority} statusdot"></i><div class="photo">${source?`<img data-card-image data-master="${esc(master||"")}" src="${esc(source)}" alt="${esc(w.name)}" width="300" height="450" loading="${priority}" decoding="async" fetchpriority="${fetchPriority}">`:'🍾'}</div><div class="body"><div class="producer">${esc(w.producer||w.category)}</div><div class="name">${esc(w.name)}</div><div class="vintage">${w.vintage??"S.A."}</div><div class="foot"><span class="qty">Disponibili <b>${w.quantity}</b></span><span>${market(w)}</span></div></div></article>`}).join("")||'<div class="panel muted" style="grid-column:1/-1">Nessuna bottiglia con questi filtri.</div>';
+  $$('[data-card-image]').forEach(image=>image.addEventListener("error",()=>{if(image.dataset.fallback!=="1"&&image.dataset.master&&image.src!==image.dataset.master){image.dataset.fallback="1";image.src=image.dataset.master}else{image.parentElement.textContent="🍾"}}));
+  $$('[data-wine]').forEach(c=>c.onclick=()=>showWine(c.dataset.wine));stats();
+}
+render=renderOptimized;
 const legacyAiWorkspace=aiWorkspace;aiWorkspace=mode=>mode==="scouting"?showScoutingWorkspace():legacyAiWorkspace(mode);
 start().then(()=>{$("#sort").onchange=e=>{activeSort=e.target.value;render()};["#historyRating","#historyRegion","#historyCategory","#historyYear"].forEach(id=>$(id).onchange=renderHistory);$$('[data-history-type]').forEach(b=>b.onclick=()=>{activeHistoryType=b.dataset.historyType;$$('[data-history-type]').forEach(x=>x.classList.toggle('active',x===b));renderHistory()});});
