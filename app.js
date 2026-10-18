@@ -1,3 +1,90 @@
+// These assignments intentionally replace the legacy handlers declared below.
+let transactionalBottleSaveInFlight=false,transactionalBottleRequestId=null,transactionalBottleFingerprint=null;
+function bottleSaveFingerprint(existing){return JSON.stringify({id:existing?.id||null,name:existing?existing.name:$("#newName").value.trim(),producer:existing?existing.producer:$("#newProducer").value.trim(),vintage:existing?existing.vintage:(Number($("#newVintage").value)||null),category:existing?existing.category:$("#newCategory").value,quantity:Math.max(1,Number($("#newQty").value)||1),price:$("#newPrice").value?Number($("#newPrice").value):null,acquisition_type:$("#newAcq").value})}
+saveBottleForm=async function(existing){
+  const button=$("#saveBottle");
+  if(transactionalBottleSaveInFlight||!button)return;
+  const fingerprint=bottleSaveFingerprint(existing);
+  const data=JSON.parse(fingerprint);
+  if(fingerprint!==transactionalBottleFingerprint){let pending=null;try{pending=JSON.parse(localStorage.getItem("cdp_purchase_request")||"null")}catch{}transactionalBottleFingerprint=fingerprint;transactionalBottleRequestId=pending?.fingerprint===fingerprint?pending.request_id:crypto.randomUUID()}
+  transactionalBottleSaveInFlight=true;
+  button.disabled=true;
+  try{
+    if(!data.name)return toast("Inserisci almeno il nome del vino.");
+    let target=existing;
+    if(!target&&data.producer){
+      const matches=wines.filter(w=>String(w.name||"").trim().toLocaleLowerCase("it-IT")===data.name.toLocaleLowerCase("it-IT")&&String(w.producer||"").trim().toLocaleLowerCase("it-IT")===data.producer.toLocaleLowerCase("it-IT")&&(Number(w.vintage)||null)===data.vintage);
+      if(matches.length===1){if(!window.confirm(`${matches[0].producer} · ${matches[0].name} · ${matches[0].vintage??"S.A."} è già presente (${matches[0].quantity} bottiglie). Vuoi aumentare la quantità?`))return;target=matches[0]}
+      else if(matches.length>1){toast("Esistono più schede identiche: scegli quella da aggiornare prima di aggiungere bottiglie.");return}
+    }
+    localStorage.setItem("cdp_purchase_request",JSON.stringify({fingerprint,request_id:transactionalBottleRequestId}));
+    const call=async(wine)=>request("/rest/v1/rpc/add_wine_purchase",{method:"POST",body:JSON.stringify({p_request_id:transactionalBottleRequestId,p_wine_id:wine?String(wine.id):null,p_name:data.name,p_producer:data.producer||null,p_vintage:data.vintage,p_category:data.category,p_quantity:data.quantity,p_unit_price:data.price,p_acquisition_type:data.acquisition_type})});
+    let result=await call(target);
+    if(result?.requires_selection){await loadCloud();toast("Esistono più schede identiche. Apri quella corretta e aggiungi le bottiglie da lì.");return}
+    if(result?.requires_confirmation){
+      let duplicate=wines.find(w=>String(w.id)===String(result.wine_id));
+      if(!duplicate){await loadCloud();duplicate=wines.find(w=>String(w.id)===String(result.wine_id))}
+      if(!duplicate){toast("La cantina è cambiata. Ricarica i dati e riprova.");return}
+      if(!window.confirm(`${duplicate.producer||"Produttore sconosciuto"} · ${duplicate.name} · ${duplicate.vintage??"S.A."} è già presente (${result.quantity} bottiglie). Vuoi aumentare la quantità?`))return;
+      target=duplicate;
+      result=await call(target);
+    }
+    if(!result?.wine_id)throw new Error("Risposta transazionale non valida");
+    const created=result.created?wines.find(w=>String(w.id)===String(result.wine_id))||{id:result.wine_id,name:data.name,producer:data.producer||null,vintage:data.vintage,category:data.category,quantity:data.quantity}:null;
+    const image=pendingBottleImage;
+    pendingBottleImage=null;pendingOriginalBottleFile=null;
+    closeModal();
+    if(created&&image){try{const uploaded=await processWineImage(created.id,image);await request(`/rest/v1/wines?id=eq.${created.id}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({official_image_url:uploaded.url})})}catch(error){console.error("add bottle image",error)}}
+    localStorage.removeItem("cdp_purchase_request");transactionalBottleRequestId=null;transactionalBottleFingerprint=null;
+    await loadCloud();
+    toast(`Aggiunte ${data.quantity} bottiglie.`);
+    const saved=wines.find(w=>String(w.id)===String(result.wine_id));
+    if(saved)enrichWine(saved,!target).catch(()=>{});
+  }catch(error){console.error("transactional bottle save",error);toast("Salvataggio non confermato. Puoi riprovare senza creare movimenti duplicati.")}finally{transactionalBottleSaveInFlight=false;const current=$("#saveBottle");if(current)current.disabled=false}
+};
+
+const previousShowAdd=showAdd;
+showAdd=function(existing=false,w=null){transactionalBottleRequestId=null;transactionalBottleFingerprint=null;return previousShowAdd(existing,w)};
+
+enrichmentMatches=(wine,data)=>!!data?.verified&&String(data.name||"").trim().toLocaleLowerCase("it-IT")===String(wine.name||"").trim().toLocaleLowerCase("it-IT")&&String(data.producer||"").trim().toLocaleLowerCase("it-IT")===String(wine.producer||"").trim().toLocaleLowerCase("it-IT")&&(data.vintage??null)===(wine.vintage??null);
+enrichWine=async function(wine,isNew=false){
+  if(!wine)return {updated:false,complete:false};
+  const missing=!validText(wine.region)||!validText(wine.appellation)||!validText(wine.drink_from)||!validText(wine.drink_to);
+  if(!missing)return {updated:false,complete:true};
+  try{
+    const data=await request("/functions/v1/wine-enrich",{method:"POST",body:JSON.stringify({name:wine.name,producer:wine.producer||null,vintage:wine.vintage??null})});
+    if(!enrichmentMatches(wine,data))return {updated:false,complete:false,unverifiable:true};
+    const updates={};
+    for(const field of ["region","appellation","drink_from","drink_to"])if(!validText(wine[field])&&validText(data[field]))updates[field]=String(data[field]).trim();
+    if(Object.keys(updates).length){await request(`/rest/v1/wines?id=eq.${wine.id}`,{method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify(updates)});Object.assign(wine,updates)}
+    return {updated:Object.keys(updates).length>0,complete:["region","appellation","drink_from","drink_to"].every(field=>validText(wine[field]))};
+  }catch(error){console.error("wine-enrich",error);return {updated:false,complete:false,error:true}}
+};
+
+let collectionRefreshInFlight=false,collectionRefreshRunId=null;
+const previousShowCollectionMarketRefreshModal=showCollectionMarketRefreshModal;
+showCollectionMarketRefreshModal=function(){collectionRefreshRunId=localStorage.getItem("cdp_market_refresh_run")||null;previousShowCollectionMarketRefreshModal();const confirm=$("#confirmMarketRefresh");if(confirm)confirm.textContent=collectionRefreshRunId?"Riprendi aggiornamento":"Aggiorna"};
+runCollectionMarketRefresh=async function(){
+  if(collectionRefreshInFlight)return;
+  const button=$("#confirmMarketRefresh"),cancel=$("#cancelMarketRefresh"),status=$("#collectionRefreshStatus");
+  const candidates=wines.filter(w=>Number(w.quantity||0)>0);
+  if(!candidates.length){toast("Nessuna etichetta da aggiornare.");closeModal();return}
+  collectionRefreshInFlight=true;collectionRefreshRunId=collectionRefreshRunId||crypto.randomUUID();localStorage.setItem("cdp_market_refresh_run",collectionRefreshRunId);
+  if(button)button.disabled=true;if(cancel)cancel.disabled=true;
+  try{
+    let done=false,summary={updated:0,unchanged:0,unverifiable:0,errors:0};
+    while(!done){
+      if(status)status.textContent="Verifica prezzi e fonti… aggiornamento progressivo in corso";
+      const result=await request("/functions/v1/wine-market-refresh",{method:"POST",body:JSON.stringify({run_id:collectionRefreshRunId})});
+      done=!!result.done;summary=result.summary||summary;
+      if(status)status.textContent=`Verifica ${result.progress?.next_index||0} di ${result.progress?.total||candidates.length} · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`;
+    }
+    localStorage.removeItem("cdp_market_refresh_run");collectionRefreshRunId=null;
+    await loadCloud();render();
+    closeModal();toast(`Valori verificati · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`);
+  }catch(error){console.error("collection market refresh",error);if(status)status.textContent="Aggiornamento interrotto. Riapri questa finestra per riprenderlo senza sovrapporre un altro refresh.";toast("Aggiornamento interrotto. Puoi riprenderlo dalla collezione.")}
+  finally{collectionRefreshInFlight=false;const current=$("#confirmMarketRefresh");if(current)current.disabled=false;const close=$("#cancelMarketRefresh");if(close)close.disabled=false}
+};
 const SUPABASE_URL="https://lejoeywrtgxyoilrzrwg.supabase.co",SUPABASE_KEY="sb_publishable_Zfzv_p6vzjQpIwd8AYuasg_HVMxYwSN";
 const BOTTLE_BACKGROUND_COLOR="#FAF8F3";
 const BOTTLE_TARGET_HEIGHT_RATIO=0.92;

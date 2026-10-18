@@ -1,0 +1,10 @@
+project_id = "lejoeywrtgxyoilrzrwg"
+
+[functions.wine-enrich]
+verify_jwt = true
+
+[functions.wine-market-refresh]
+verify_jwt = true
+
+[functions.market-refresh-weekly]
+verify_jwt = false
