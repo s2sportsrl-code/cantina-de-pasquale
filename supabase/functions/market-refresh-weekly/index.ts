@@ -1,4 +1,4 @@
-import { runMarketRefreshBatch } from "../_shared/market-refresh.ts";
+import { GeminiRequestError, runMarketRefreshBatch } from "../_shared/market-refresh.ts";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -42,6 +42,10 @@ Deno.serve(async (req: Request) => {
     if (result.busy) return json({ status: "busy" }, 409);
     return json({ run_id: runId, ...result });
   } catch (error) {
+    if (error instanceof GeminiRequestError) {
+      console.error("weekly market refresh Gemini diagnostic", error.diagnostic);
+      return json({ error: "Refresh Gemini settimanale non riuscito.", failed: true, status: "failed", diagnostic: error.diagnostic }, error.diagnostic.http_status === 429 ? 429 : 502);
+    }
     console.error("weekly market refresh", error);
     return json({ error: "Refresh settimanale non riuscito.", failed: true, status: "failed" }, 500);
   }

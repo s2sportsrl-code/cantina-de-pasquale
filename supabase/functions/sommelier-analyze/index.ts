@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { GeminiRequestError, generateGroundedContent } from "../_shared/market-refresh.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,7 +28,19 @@ Deno.serve(async (req: Request) => {
 
   if (!apiKey)
     return json(
-      { error: "Gemini non è ancora configurato sul server." },
+      {
+        error: "Gemini non è ancora configurato sul server.",
+        diagnostic: {
+          stage: "configuration",
+          model: "models.list",
+          http_status: null,
+          code: "GEMINI_API_KEY_MISSING",
+          status: null,
+          category: "configuration_error",
+          message: "GEMINI_API_KEY non configurata.",
+          details: [],
+        },
+      },
       503,
     );
 
@@ -159,73 +172,17 @@ Se qualche informazione non è verificabile,
 dichiaralo chiaramente invece di inventarla.
 `;
 
-const models = [
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-3.5-flash-lite",
-];
-
-let response: Response | null = null;
-let payload: any = null;
-
-const requestBody = {
-  contents: [
-    {
-      role: "user",
-      parts: [
-        { text: prompt },
-        {
-          inlineData: {
-            mimeType,
-            data: imageData,
-          },
-        },
-      ],
-    },
-  ],
-  generationConfig: {
-    temperature: 0.2,
-    responseMimeType: "application/json",
-  },
-};
-
-for (const model of models) {
-  response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const generated = await generateGroundedContent(apiKey, [
+      {
+        role: "user",
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType, data: imageData } },
+        ],
       },
-      body: JSON.stringify(requestBody),
-    },
-  );
-
-  payload = await response.json();
-
-  if (response.ok) {
-    console.log(`Sommelier: risposta ottenuta con ${model}`);
-    break;
-  }
-
-  console.warn(
-    `Sommelier: ${model} non disponibile`,
-    payload?.error?.message || response.status,
-  );
-}
-
-    if (!response.ok) {
-      console.error("Gemini error", payload);
-
-      return json(
-        {
-          error:
-            payload?.error?.message ||
-            "Il servizio Gemini non è disponibile in questo momento.",
-        },
-        502,
-      );
-    }
+    ]);
+    const payload = generated.payload;
+    console.log(`Sommelier: risposta grounded ottenuta con ${generated.model}`);
 
     const output =
       payload?.candidates?.[0]?.content?.parts
@@ -273,6 +230,13 @@ for (const model of models) {
       sources,
     });
   } catch (error) {
+    if (error instanceof GeminiRequestError) {
+      console.error("Sommelier Gemini diagnostic", error.diagnostic);
+      return json(
+        { error: "Il servizio Gemini non è disponibile per questa analisi.", diagnostic: error.diagnostic },
+        error.diagnostic.http_status === 429 ? 429 : 502,
+      );
+    }
     console.error(error);
 
     return json(

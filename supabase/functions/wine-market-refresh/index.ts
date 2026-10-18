@@ -1,4 +1,4 @@
-import { authenticatedUser, runMarketRefreshBatch } from "../_shared/market-refresh.ts";
+import { authenticatedUser, GeminiRequestError, runMarketRefreshBatch } from "../_shared/market-refresh.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,6 +19,10 @@ Deno.serve(async (req: Request) => {
     if (result.busy) return json({ error: "Un aggiornamento valori è già in corso.", status: "busy" }, 409);
     return json({ run_id: runId, ...result });
   } catch (error) {
+    if (error instanceof GeminiRequestError) {
+      console.error("manual market refresh Gemini diagnostic", error.diagnostic);
+      return json({ error: "Aggiornamento Gemini non riuscito.", failed: true, status: "failed", diagnostic: error.diagnostic }, error.diagnostic.http_status === 429 ? 429 : 502);
+    }
     console.error("manual market refresh", error);
     return json({ error: "Aggiornamento valori non riuscito.", failed: true, status: "failed", details: String(error).slice(0, 300) }, 500);
   }
