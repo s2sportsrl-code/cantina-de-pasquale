@@ -20,6 +20,6 @@ Deno.serve(async (req: Request) => {
     return json({ run_id: runId, ...result });
   } catch (error) {
     console.error("manual market refresh", error);
-    return json({ error: "Aggiornamento valori non riuscito.", details: String(error).slice(0, 300) }, 500);
+    return json({ error: "Aggiornamento valori non riuscito.", failed: true, status: "failed", details: String(error).slice(0, 300) }, 500);
   }
 });

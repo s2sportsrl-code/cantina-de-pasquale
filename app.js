@@ -72,17 +72,18 @@ runCollectionMarketRefresh=async function(){
   collectionRefreshInFlight=true;collectionRefreshRunId=collectionRefreshRunId||crypto.randomUUID();localStorage.setItem("cdp_market_refresh_run",collectionRefreshRunId);
   if(button)button.disabled=true;if(cancel)cancel.disabled=true;
   try{
-    let done=false,summary={updated:0,unchanged:0,unverifiable:0,errors:0};
+    let done=false,failed=false,summary={updated:0,unchanged:0,unverifiable:0,errors:0};
     while(!done){
       if(status)status.textContent="Verifica prezzi e fonti… aggiornamento progressivo in corso";
       const result=await request("/functions/v1/wine-market-refresh",{method:"POST",body:JSON.stringify({run_id:collectionRefreshRunId})});
-      done=!!result.done;summary=result.summary||summary;
+      done=!!result.done;failed=!!result.failed;summary=result.summary||summary;
       if(status)status.textContent=`Verifica ${result.progress?.next_index||0} di ${result.progress?.total||candidates.length} · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`;
     }
     localStorage.removeItem("cdp_market_refresh_run");collectionRefreshRunId=null;
+    if(failed){closeModal();toast(`Refresh completamente fallito · ${summary.errors} errori su ${candidates.length} vini.`);return}
     await loadCloud();render();
     closeModal();toast(`Valori verificati · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`);
-  }catch(error){console.error("collection market refresh",error);if(status)status.textContent="Aggiornamento interrotto. Riapri questa finestra per riprenderlo senza sovrapporre un altro refresh.";toast("Aggiornamento interrotto. Puoi riprenderlo dalla collezione.")}
+  }catch(error){console.error("collection market refresh",error);let serverFailed=false;try{serverFailed=JSON.parse(error.message)?.failed===true}catch{}if(status)status.textContent=serverFailed?"Esecuzione completamente fallita lato server. I dettagli sono registrati nel log del refresh.":"Aggiornamento interrotto. Riapri questa finestra per riprenderlo senza sovrapporre un altro refresh.";toast(serverFailed?"Refresh completamente fallito lato server.":"Aggiornamento interrotto. Puoi riprenderlo dalla collezione.")}
   finally{collectionRefreshInFlight=false;const current=$("#confirmMarketRefresh");if(current)current.disabled=false;const close=$("#cancelMarketRefresh");if(close)close.disabled=false}
 };
 const SUPABASE_URL="https://lejoeywrtgxyoilrzrwg.supabase.co",SUPABASE_KEY="sb_publishable_Zfzv_p6vzjQpIwd8AYuasg_HVMxYwSN";

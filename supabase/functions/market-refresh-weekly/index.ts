@@ -43,6 +43,6 @@ Deno.serve(async (req: Request) => {
     return json({ run_id: runId, ...result });
   } catch (error) {
     console.error("weekly market refresh", error);
-    return json({ error: "Refresh settimanale non riuscito." }, 500);
+    return json({ error: "Refresh settimanale non riuscito.", failed: true, status: "failed" }, 500);
   }
 });
