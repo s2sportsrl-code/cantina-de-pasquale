@@ -74,11 +74,11 @@ runCollectionMarketRefresh=async function(){
   try{
     let done=false,failed=false,summary={updated:0,unchanged:0,unverifiable:0,errors:0};
     while(!done){
-      if(status)status.textContent="Diagnostica Gemini e verifica prezzi in corso…";
-      const result=await request("/functions/v1/wine-market-refresh",{method:"POST",body:JSON.stringify({run_id:collectionRefreshRunId})});
+      if(status)status.textContent="Verifica delle offerte pubbliche dei rivenditori…";
+      const result=await request("/functions/v1/wine-market-refresh",{method:"POST",body:JSON.stringify({run_id:collectionRefreshRunId,mode:"refresh"})});
       done=!!result.done;failed=!!result.failed;summary=result.summary||summary;
-      if(status)status.textContent=`${result.diagnostic?.status==="passed"?`Diagnostica superata · ${result.diagnostic.model} · ${result.diagnostic.grounding_source_count} fonti grounded · `:""}Verifica ${result.progress?.next_index||0} di ${result.progress?.total||candidates.length} · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`;
-      if(result.stopped){localStorage.removeItem("cdp_market_refresh_run");collectionRefreshRunId=null;await loadCloud();render();const category=result.diagnostic?.category,message=category==="permanent_quota"?"Quota Gemini esaurita o billing non attivo: refresh fermato, nessun altro vino interrogato.":category==="temporary_rate_limit"?"Limite Gemini temporaneo: refresh fermato, riprova più tardi.":category==="no_compatible_models"||category==="no_compatible_grounding_model"?"Nessun modello Gemini testuale disponibile supporta Google Search grounding.":"Test Gemini fallito: nessun altro vino interrogato.";closeModal();toast(message);return}
+      if(status)status.textContent=`Verifica ${result.progress?.next_index||0} di ${result.progress?.total||candidates.length} · ${summary.updated} aggiornati · ${summary.unchanged} invariati · ${summary.unverifiable} non verificabili · ${summary.errors} errori`;
+      if(result.stopped){const category=result.diagnostic?.category;if(category!=="rate_limited"){localStorage.removeItem("cdp_market_refresh_run");collectionRefreshRunId=null}const message=category==="rate_limited"?"Il rivenditore ha applicato un limite temporaneo. Il refresh è salvato e puoi riprenderlo più tardi.":"Aggiornamento interrotto per un errore della fonte. I prezzi precedenti sono stati conservati.";if(status)status.textContent=message;closeModal();toast(message);return}
     }
     localStorage.removeItem("cdp_market_refresh_run");collectionRefreshRunId=null;
     if(failed){closeModal();toast(`Refresh completamente fallito · ${summary.errors} errori su ${candidates.length} vini.`);return}

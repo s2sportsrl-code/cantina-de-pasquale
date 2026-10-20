@@ -6,5 +6,8 @@ verify_jwt = true
 [functions.wine-market-refresh]
 verify_jwt = true
 
+[functions.market-refresh-github]
+verify_jwt = false
+
 [functions.market-refresh-weekly]
 verify_jwt = false
