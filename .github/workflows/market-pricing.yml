@@ -26,9 +26,8 @@ jobs:
       SUPABASE_URL: https://lejoeywrtgxyoilrzrwg.supabase.co
       MARKET_REFRESH_GITHUB_TOKEN: ${{ secrets.MARKET_REFRESH_GITHUB_TOKEN }}
       MARKET_PRICING_ACTION: ${{ inputs.action }}
-      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Run market-pricing action and produce a report
+      - name: Run market-pricing action and produce an aggregate summary
         shell: bash
         run: |
           set -euo pipefail
@@ -36,30 +35,13 @@ jobs:
           import json
           import os
           import time
-          import urllib.error
           import urllib.request
           import uuid
 
-          repository_request = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": "Bearer " + os.environ["GITHUB_TOKEN"],
-                  "X-GitHub-Api-Version": "2022-11-28",
-              },
-          )
-          with urllib.request.urlopen(repository_request, timeout=30) as response:
-              repository = json.loads(response.read())
-          if repository.get("visibility") == "public":
-              raise SystemExit("Market-pricing reports contain private cellar data; use a private GitHub repository.")
+          def count(value):
+              return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
-          endpoint = os.environ["SUPABASE_URL"].rstrip("/") + "/functions/v1/market-refresh-github"
-          token = os.environ.get("MARKET_REFRESH_GITHUB_TOKEN", "")
-          action = os.environ["MARKET_PRICING_ACTION"]
-          if not token:
-              raise SystemExit("Configure MARKET_REFRESH_GITHUB_TOKEN in the protected market-pricing environment.")
-
-          def post(payload):
+          def post(endpoint, token, payload):
               request = urllib.request.Request(
                   endpoint,
                   data=json.dumps(payload).encode(),
@@ -69,113 +51,102 @@ jobs:
                   },
                   method="POST",
               )
-              try:
-                  with urllib.request.urlopen(request, timeout=180) as response:
-                      return json.loads(response.read())
-              except urllib.error.HTTPError as error:
-                  details = error.read().decode("utf-8", "replace")
-                  raise RuntimeError(f"Supabase Edge Function returned HTTP {error.code}: {details[:500]}")
+              with urllib.request.urlopen(request, timeout=180) as response:
+                  return json.loads(response.read())
 
-          if action == "pilot":
-              result = post({"action": "pilot"})
-              payload = result
-              payload["failed"] = any(item.get("status") == "error" for item in payload.get("results", []))
-          else:
-              run_id = str(uuid.uuid4())
-              batches = []
-              while True:
-                  result = post({"action": action, "run_id": run_id})
-                  batches.append(result)
-                  if result.get("busy"):
-                      raise RuntimeError("Another market refresh is already active.")
-                  if result.get("failed"):
-                      break
-                  if result.get("done"):
-                      break
-                  time.sleep(1)
-                  if len(batches) >= 10000:
-                      raise RuntimeError("Refresh exceeded the safety limit of 10,000 batches.")
-              payload = {
-                  "action": action,
-                  "run_id": run_id,
-                  "batches": batches,
-                  "summary": batches[-1].get("summary", {}) if batches else {},
-                  "failed": bool(batches and batches[-1].get("failed")),
-              }
+          action = os.environ.get("MARKET_PRICING_ACTION", "")
+          status = "failed"
+          counts = {
+              "tested": 0,
+              "priced": 0,
+              "unverifiable": 0,
+              "updated": 0,
+              "unchanged": 0,
+              "errors": 0,
+          }
 
-          with open("market-pricing-report.json", "w", encoding="utf-8") as report:
-              json.dump(payload, report, ensure_ascii=False, indent=2)
+          try:
+              if action not in {"pilot", "initialize", "refresh"}:
+                  raise ValueError("Invalid action")
+              endpoint = os.environ["SUPABASE_URL"].rstrip("/") + "/functions/v1/market-refresh-github"
+              token = os.environ.get("MARKET_REFRESH_GITHUB_TOKEN", "")
+              if not token:
+                  raise ValueError("Missing workflow token")
 
-          summary = payload.get("summary", {})
+              if action == "pilot":
+                  result = post(endpoint, token, {"action": "pilot"})
+                  results = result.get("results", [])
+                  if not isinstance(results, list):
+                      raise ValueError("Invalid pilot response")
+                  counts["tested"] = len(results)
+                  for item in results:
+                      item_status = item.get("status") if isinstance(item, dict) else None
+                      if item_status == "priced":
+                          counts["priced"] += 1
+                      elif item_status == "unverifiable":
+                          counts["unverifiable"] += 1
+                      else:
+                          counts["errors"] += 1
+                  status = "completed" if counts["errors"] == 0 else "failed"
+              else:
+                  run_id = str(uuid.uuid4())
+                  for _ in range(10000):
+                      result = post(endpoint, token, {"action": action, "run_id": run_id})
+                      summary = result.get("summary", {})
+                      if isinstance(summary, dict):
+                          for key in ("updated", "unchanged", "unverifiable", "errors"):
+                              counts[key] = count(summary.get(key))
+                      if result.get("busy"):
+                          raise RuntimeError("Refresh is busy")
+                      if result.get("failed"):
+                          status = "failed"
+                          break
+                      if result.get("done"):
+                          status = "completed"
+                          break
+                      time.sleep(1)
+                  else:
+                      raise RuntimeError("Batch limit exceeded")
+          except Exception:
+              status = "failed"
+              counts["errors"] = max(1, counts["errors"])
+
+          report_data = {
+              "action": action if action in {"pilot", "initialize", "refresh"} else "unknown",
+              "status": status,
+              "pilot_without_price_writes": action == "pilot",
+              "counts": counts,
+          }
           markdown = [
-              "# Wine market pricing report",
+              "# Wine market pricing summary",
               "",
-              f"- Action: `{action}`",
-              f"- Generated: `{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}`",
-              f"- Prices saved to cellar: `{'no' if action == 'pilot' else 'yes'}`",
+              f"- Status: `{status}`",
+              f"- Action: `{report_data['action']}`",
+              f"- Pilot without price writes: `{'yes' if action == 'pilot' else 'no'}`",
               "",
-          ]
-          if action == "pilot":
-              results = payload.get("results", [])
-              markdown += [
-                  f"- Tested cellar labels: `{payload.get('tested', 0)}`",
-                  "- The pilot never updates wine records; only retailer-request throttling is recorded.",
-                  "",
-                  "| Label | Vintage | Result | Median EUR | Confidence | Source |",
-                  "|---|---:|---|---:|---|---|",
-              ]
-              for item in results:
-                  offers = item.get("offers", [])
-                  source = offers[0].get("url", "") if offers else ""
-                  median = item.get("median_eur")
-                  markdown.append(
-                      f"| {item.get('producer') or ''} {item.get('name') or ''} "
-                      f"| {item.get('vintage') or 'NV/unknown'} | {item.get('status', 'error')} "
-                      f"| {median if median is not None else '—'} | {item.get('confidence') or '—'} "
-                      f"| {source} |"
-                  )
-          else:
-              markdown += [
-                  f"- Result: `{'failed' if payload.get('failed') else 'completed'}`",
-                  f"- Updated: `{summary.get('updated', 0)}` · unchanged: `{summary.get('unchanged', 0)}` "
-                  f"· unverifiable: `{summary.get('unverifiable', 0)}` · errors: `{summary.get('errors', 0)}`",
-                  "",
-                  "| Wine ID | Result | Median EUR | Confidence | Source URLs |",
-                  "|---|---|---:|---|---|",
-              ]
-              for batch in payload.get("batches", []):
-                  for item in batch.get("outcomes", []):
-                      details = item.get("details", {})
-                      offers = details.get("market_sources", details.get("offers", []))
-                      urls = ", ".join(offer.get("url", "") for offer in offers)
-                      median = details.get("market_value_median", details.get("median_eur"))
-                      markdown.append(
-                          f"| {item.get('wine_id', '')} | {item.get('status', '')} "
-                          f"| {median if median is not None else '—'} | {details.get('market_confidence', details.get('confidence', '—'))} "
-                          f"| {urls} |"
-                      )
-          markdown += [
-              "",
-              "Only public product pages permitted by the seller's robots.txt are queried. "
-              "A missing, ambiguous, unavailable, or blocked offer does not change the previous market value.",
+              "| Tested | Priced | Unverifiable | Updated | Unchanged | Errors |",
+              "|---:|---:|---:|---:|---:|---:|",
+              f"| {counts['tested']} | {counts['priced']} | {counts['unverifiable']} | "
+              f"{counts['updated']} | {counts['unchanged']} | {counts['errors']} |",
               "",
           ]
-          text = "\n".join(markdown)
-          with open("market-pricing-report.md", "w", encoding="utf-8") as report:
-              report.write(text)
+          with open("market-pricing-summary.json", "w", encoding="utf-8") as report:
+              json.dump(report_data, report, ensure_ascii=True, separators=(",", ":"))
+          with open("market-pricing-summary.md", "w", encoding="utf-8") as report:
+              report.write("\n".join(markdown))
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as report:
-              report.write(text)
+              report.write("\n".join(markdown))
 
-          if payload.get("failed"):
-              raise SystemExit("Market-pricing refresh failed; inspect the report artifact.")
+          if status != "completed":
+              raise SystemExit("Market pricing execution failed; only aggregate status and counts were emitted.")
           PY
-      - name: Upload private market-pricing report
+      - name: Upload aggregate market-pricing summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: market-pricing-report-${{ github.run_id }}
+          name: market-pricing-summary
           path: |
-            market-pricing-report.md
-            market-pricing-report.json
+            market-pricing-summary.md
+            market-pricing-summary.json
           if-no-files-found: ignore
           retention-days: 30
