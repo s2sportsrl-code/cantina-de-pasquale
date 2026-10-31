@@ -356,7 +356,8 @@ export async function runMarketRefreshBatch(runId: string, trigger: "manual" | "
 }
 
 export async function runRetailerMarketPilot(limit = 5) {
-  const wines = await loadWines(Math.min(5, Math.max(1, limit)));
+  const requested = Math.min(5, Math.max(1, limit));
+  const wines = await loadWines(requested);
   const results: any[] = [];
   for (const wine of wines) {
     try {
@@ -378,11 +379,27 @@ export async function runRetailerMarketPilot(limit = 5) {
       }
     }
   }
+  const counts = { priced: 0, unverifiable: 0, errors: 0 };
+  for (const result of results) {
+    if (result.status === "priced") counts.priced++;
+    else if (result.status === "unverifiable") counts.unverifiable++;
+    else counts.errors++;
+  }
+  await db("market_pricing_pilot_diagnostics", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: json({
+      requested,
+      tested: results.length,
+      ...counts,
+      diagnostics: results,
+    }),
+  });
   return {
     dry_run: true,
     saved_prices: false,
     checked_at: new Date().toISOString(),
-    requested: Math.min(5, Math.max(1, limit)),
+    requested,
     tested: results.length,
     results,
   };

@@ -1,4 +1,5 @@
 import {
+  assessRetailerMarket,
   calculateMarketAssessment,
   expectedFormatMl,
   median,
@@ -70,6 +71,21 @@ Deno.test("infers common bottle sizes from explicit label text", () => {
   if (expectedFormatMl({ name: "Wine", producer: "Winery", vintage: null }) !== null) {
     throw new Error("An unspecified cellar bottle size must remain unknown.");
   }
+});
+
+Deno.test("does not query a retailer when the cellar bottle size is unknown", async () => {
+  let requests = 0;
+  const result = await assessRetailerMarket(
+    { name: "Chablis", producer: "Maison Simonnet-Febvre", vintage: 2020 },
+    "research@example.com",
+    async () => {
+      requests++;
+    },
+  );
+  if (result.status !== "unverifiable" || result.reason !== "Formato della cantina non verificabile.") {
+    throw new Error("An unknown cellar bottle size must be reported as unverifiable.");
+  }
+  if (requests !== 0) throw new Error("The retailer must not be queried without a verified bottle size.");
 });
 
 Deno.test("parses only single-bottle in-stock EUR structured offers", () => {
