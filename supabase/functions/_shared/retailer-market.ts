@@ -200,20 +200,28 @@ function productVintage(product: ProductRow, state?: Record<string, any> | null)
 }
 
 export function expectedFormatMl(wine: MarketWine): number | null {
-  for (const value of [wine.format_ml]) {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric >= 100 && numeric <= 18000) return Math.round(numeric);
+  const explicitFormats: number[] = [];
+  if (wine.format_ml !== null && wine.format_ml !== undefined && wine.format_ml !== 0) {
+    const format = Number(wine.format_ml);
+    if (!Number.isFinite(format) || format < 100 || format > 18000) return null;
+    explicitFormats.push(Math.round(format));
   }
-  const identity = `${wine.name} ${wine.notes || ""}`.toLowerCase();
-  const explicit = identity.match(/\b(\d{1,5}(?:[.,]\d+)?)\s*(litri|ml|cl|lt|l)\b/);
-  if (explicit) {
-    const amount = Number(explicit[1].replace(",", "."));
-    const unit = explicit[2];
-    return unit === "ml" ? Math.round(amount) : unit === "cl" ? Math.round(amount * 10) : Math.round(amount * 1000);
+
+  const identity = `${wine.name} ${wine.notes || ""}`;
+  const formatPattern = /\b(\d{1,5}(?:[.,]\d+)?)\s*(litri|ml|cl|lt|l)\b/gi;
+  for (const match of identity.matchAll(formatPattern)) {
+    const amount = Number(match[1].replace(",", "."));
+    const unit = match[2].toLowerCase();
+    const format = unit === "ml" ? amount : unit === "cl" ? amount * 10 : amount * 1000;
+    if (!Number.isFinite(format) || format < 100 || format > 18000) return null;
+    explicitFormats.push(Math.round(format));
   }
-  if (/\bmagnum\b/i.test(identity)) return 1500;
-  if (/\b(?:mezza bottiglia|half bottle|demi bouteille|375)\b/i.test(identity)) return 375;
-  return null;
+  if (/\bmagnum\b/i.test(identity)) explicitFormats.push(1500);
+  if (/\b(?:mezza bottiglia|half bottle|demi bouteille|375)\b/i.test(identity)) explicitFormats.push(375);
+
+  const uniqueFormats = [...new Set(explicitFormats)];
+  if (uniqueFormats.length > 1) return null;
+  return uniqueFormats[0] ?? 750;
 }
 
 function normalizedProducer(value: unknown) {

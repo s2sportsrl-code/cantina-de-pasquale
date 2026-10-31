@@ -1,5 +1,4 @@
 import {
-  assessRetailerMarket,
   calculateMarketAssessment,
   expectedFormatMl,
   median,
@@ -56,36 +55,56 @@ Deno.test("checks producer, label, vintage, and exact bottle size", () => {
   if (productIdentityMatches({ ...wine, name: "Réserve" }, product).valid) {
     throw new Error("A partial label name must not match.");
   }
-  if (productIdentityMatches({ ...wine, format_ml: null }, product).valid) {
-    throw new Error("An unknown cellar format must not be assumed to be 750 ml.");
+  if (!productIdentityMatches({ ...wine, format_ml: null }, product).valid) {
+    throw new Error("An unspecified bottle size should default to a verified standard 750 ml bottle.");
   }
 });
 
-Deno.test("infers common bottle sizes from explicit label text", () => {
+Deno.test("defaults unspecified formats to 750 ml and retains explicit formats", () => {
+  if (expectedFormatMl({ name: "Wine", producer: "Winery", vintage: null }) !== 750) {
+    throw new Error("An unspecified bottle size should default to 750 ml.");
+  }
+  if (expectedFormatMl({ name: "Wine", producer: "Winery", vintage: null, format_ml: 750 }) !== 750) {
+    throw new Error("An explicit format_ml value should be retained.");
+  }
+  if (expectedFormatMl({ name: "Wine 750 ml", producer: "Winery", vintage: null }) !== 750) {
+    throw new Error("An explicit 750 ml label format should be retained.");
+  }
+});
+
+Deno.test("preserves magnum and half-bottle sizes", () => {
   if (expectedFormatMl({ name: "Wine Magnum", producer: "Winery", vintage: null }) !== 1500) {
     throw new Error("Magnum should map to 1500 ml.");
   }
   if (expectedFormatMl({ name: "Wine 375 ml", producer: "Winery", vintage: null }) !== 375) {
     throw new Error("An explicit 375 ml size should be retained.");
   }
-  if (expectedFormatMl({ name: "Wine", producer: "Winery", vintage: null }) !== null) {
-    throw new Error("An unspecified cellar bottle size must remain unknown.");
+  if (expectedFormatMl({ name: "Wine", notes: "Mezza bottiglia", producer: "Winery", vintage: null }) !== 375) {
+    throw new Error("Half-bottle descriptions should map to 375 ml.");
   }
 });
 
-Deno.test("does not query a retailer when the cellar bottle size is unknown", async () => {
-  let requests = 0;
-  const result = await assessRetailerMarket(
-    { name: "Chablis", producer: "Maison Simonnet-Febvre", vintage: 2020 },
-    "research@example.com",
-    async () => {
-      requests++;
+Deno.test("rejects contradictory bottle format metadata", () => {
+  for (const wine of [
+    { name: "Wine 750 ml", notes: "Magnum", producer: "Winery", vintage: null },
+    { name: "Wine 375 ml", producer: "Winery", vintage: null, format_ml: 750 },
+    { name: "Wine 750 ml", notes: "1.5 l", producer: "Winery", vintage: null },
+  ]) {
+    if (expectedFormatMl(wine) !== null) {
+      throw new Error("Conflicting explicit formats must be unverifiable.");
+    }
+  }
+  const result = productIdentityMatches(
+    { name: "Le Réserve", producer: "Billecart-Salmon", vintage: null, format_ml: 750, notes: "Magnum" },
+    {
+      name: "Champagne Billecart Salmon - Le Réserve",
+      manufacturer_name: "Champagne Billecart-Salmon",
+      features: { capacity: 0.75 },
     },
   );
-  if (result.status !== "unverifiable" || result.reason !== "Formato della cantina non verificabile.") {
-    throw new Error("An unknown cellar bottle size must be reported as unverifiable.");
+  if (result.valid || result.reason !== "Formato della cantina non verificabile.") {
+    throw new Error("A product match must reject contradictory cellar format metadata.");
   }
-  if (requests !== 0) throw new Error("The retailer must not be queried without a verified bottle size.");
 });
 
 Deno.test("parses only single-bottle in-stock EUR structured offers", () => {
