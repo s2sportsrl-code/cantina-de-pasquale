@@ -81,3 +81,7 @@
 .detail-grid .market-reference{font-size:13px}
 .market-metadata{display:grid;justify-items:center;gap:3px;margin:8px 0 12px;color:var(--muted);font-size:11px;line-height:1.35;text-align:center;overflow-wrap:anywhere}
 @media(max-width:380px){.wine-card .body{padding:9px}.wine-card .foot{gap:2px}.wine-card .foot .qty{font-size:9px}.wine-card .foot-price{font-size:10px}.detail-grid{gap:5px}.detail-grid>div{padding:8px 3px}.detail-grid small{font-size:10px}.detail-grid b{font-size:12px}.detail-grid .market-reference{font-size:11px}}
+.wine-card{display:flex;flex-direction:column}
+.wine-card .photo{flex:0 0 auto}
+.wine-card .body{display:flex;flex:1;flex-direction:column}
+.wine-card .foot{margin-top:auto;padding-bottom:0}
